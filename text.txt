@@ -1,0 +1,7 @@
+BOT_TOKEN=8760936427:AAEWxHdiNhCyt3RmbbwSyKeS7CCFHNFv9Q8
+MONGODB_URI=mongodb+srv://glprince7739_db_user:Aj4BlHzd4O2TZOAv@cluster0.kpbrfce.mongodb.net/?appName=Cluster0
+DATABASE_NAME=mogodb
+API_URL=https://your-api-domain.com
+API_KEY=your_api_key_here
+ADMIN_IDS=5231119862
+```
