@@ -44,7 +44,6 @@ def start_internal_attack(ip, port, duration):
 # --- DATABASE CLASS ---
 class Database:
     def __init__(self):
-        # Indentation perfectly aligned 💋
         self.client = MongoClient(MONGODB_URI)
         self.db = self.client[DATABASE_NAME]
         self.users = self.db.users
